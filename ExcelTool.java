@@ -473,7 +473,6 @@ public class ExcelTool<T> {
      * @param workbook
      * @param sheetName
      * @param headers
-//     * @param cellSize 每个表头占用杰单元格
      * @return
      */
     public static Sheet createVariableCellSizeHeaderWithRichText(Workbook workbook,String sheetName, List<MergeHeader> headers) {
@@ -534,7 +533,7 @@ public class ExcelTool<T> {
 
 
     /**
-     * 从表格中解析数据,注意表格中各个属性的顺序要和java类中一致，本工具类从第四行开始读数据，前三行默认为标题行
+     * 从表格中解析人员数据（诚基项目使用）,注意表格中各个属性的顺序要和java类中一致，本工具类从第四行开始读数据，前三行默认为标题行
      * @param workbook
      * @param clazz
      * @return
