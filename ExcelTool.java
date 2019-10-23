@@ -692,6 +692,7 @@ public class ExcelTool<T> {
         return workbook;
     }
 
+    //富文本以及占用单元格宽度信息
     public static class MergeHeader{
         private RichTextString richTextString;
         private int size;
