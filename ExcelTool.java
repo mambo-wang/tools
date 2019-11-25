@@ -584,6 +584,26 @@ public class ExcelTool<T> {
                         field.set(t, Double.valueOf(cell.getStringCellValue()));
                     } else if(field.getType() == Float.class) {
                         field.set(t, Float.valueOf(cell.getStringCellValue()));
+                    } else if(field.getType() == BigDecimal.class){
+                        field.set(t, new BigDecimal(cell.getStringCellValue()));
+                    } else if(field.getType() == List.class){
+                        // 如果是List类型，得到其Generic的类型
+                        Type genericType = field.getGenericType();
+                        if(genericType == null) continue;
+                        // 如果是泛型参数的类型
+                        if(genericType instanceof ParameterizedType){
+                            ParameterizedType pt = (ParameterizedType) genericType;
+                            //得到泛型里的class类型对象
+                            Class<?> genericClazz = (Class<?>)pt.getActualTypeArguments()[0];
+                            JSONArray jsonArray = JSONArray.parseArray(cell.getStringCellValue());
+
+                            List list = new ArrayList();
+                            for (int m =0; m < jsonArray.size(); m ++){
+                                JSONObject jsonObject = jsonArray.getJSONObject(m);
+                                list.add(JSONObject.parseObject(jsonObject.toJSONString(), genericClazz));
+                            }
+                            field.set(t, list);
+                        }
                     }
                     // todo 添加更多类型
                 }
