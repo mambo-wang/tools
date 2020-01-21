@@ -1,19 +1,22 @@
 package com.hikvision.pbg.jc.common.tool;
 
-import com.hikvision.pbg.jc.common.common.constants.FileConstant;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.poi.hssf.usermodel.HSSFRichTextString;
-import org.apache.poi.hssf.usermodel.HSSFWorkbook;
+import org.apache.poi.hssf.usermodel.*;
+import org.apache.poi.hssf.util.HSSFColor;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.ss.util.CellRangeAddress;
+import org.springframework.util.Base64Utils;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.*;
 import java.lang.reflect.Field;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.net.URLEncoder;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Date;
 import java.util.List;
 import java.util.stream.IntStream;
 
@@ -24,7 +27,7 @@ import java.util.stream.IntStream;
  * created by wangbao6
  * created in 2019-07-04
  */
-public class ExcelTool<T> {
+public final class ExcelTool<T> {
 
     //数据行第一行在表格的第四行，前面三行留做标题和表头使用
     public static final int ROW_TITLE_INDEX=0;
@@ -120,7 +123,7 @@ public class ExcelTool<T> {
 
         String suffix = StringUtils.substringAfterLast(fileName, ".");
 
-        if (suffix.equalsIgnoreCase(FileConstant.FILE_EXCEL_XLS)) {
+        if (suffix.equalsIgnoreCase("xls")) {
             return true;
         } else {
             return false;
@@ -157,6 +160,21 @@ public class ExcelTool<T> {
         cellStyle.setBorderLeft(BorderStyle.THIN);
         cellStyle.setBorderTop(BorderStyle.THIN);
         cellStyle.setBorderRight(BorderStyle.THIN);
+        return cellStyle;
+    }
+
+    /**
+     * 生成默认表格样式
+     * @param workbook 表格
+     * @return 样式
+     */
+    public static CellStyle getLinkCellStyle(Workbook workbook){
+
+        CellStyle cellStyle = workbook.createCellStyle();
+        Font cellFont = workbook.createFont();
+        cellFont.setUnderline(HSSFFont.U_SINGLE);
+        cellFont.setFontHeightInPoints((short) 11);
+        cellStyle.setFont(cellFont);
         return cellStyle;
     }
 
@@ -264,7 +282,7 @@ public class ExcelTool<T> {
 
         Sheet sheet = workbook.createSheet(sheetName);
 
-        sheet.setDefaultColumnWidth((short) 20);
+        sheet.setDefaultColumnWidth((short) 45);
         // 生成一个样式
         CellStyle style = ExcelTool.getHeadCellStyle(workbook);
 
@@ -468,34 +486,6 @@ public class ExcelTool<T> {
         return sheet;
     }
 
-    /**
-     * 生成合并单元格的表头
-     * @param workbook
-     * @param sheetName
-     * @param headers
-     * @return
-     */
-    public static Sheet createVariableCellSizeHeaderWithRichText(Workbook workbook,String sheetName, List<MergeHeader> headers) {
-
-        Sheet sheet = workbook.getSheet(sheetName);
-        sheet.setDefaultColumnWidth((short) 20);
-        // 生成一个样式
-        CellStyle style = ExcelTool.getHeadCellStyle(workbook);
-
-        int cellIndex = -1;
-        // 产生表格表头行
-        Row row = sheet.createRow(ROW_VARIABLE_HEADER_CELL_SIZE_INDEX);
-        int totalSize = headers.stream().mapToInt(MergeHeader::getSize).sum();
-        IntStream.rangeClosed(0, totalSize -1).boxed().map(row::createCell).forEach(cell -> cell.setCellStyle(style));
-
-        for (int i = 0; i < headers.size(); i++) {
-            sheet.addMergedRegion(new CellRangeAddress(ROW_VARIABLE_HEADER_CELL_SIZE_INDEX,ROW_VARIABLE_HEADER_CELL_SIZE_INDEX, cellIndex + 1, cellIndex + headers.get(i).getSize() ));
-            Cell cell = row.getCell(cellIndex + 1);
-            cell.setCellValue(headers.get(i).getRichTextString());
-            cellIndex += cellIndex + headers.get(i).getSize();
-        }
-        return sheet;
-    }
 
     /**
      * 创建富文本表头
@@ -520,101 +510,8 @@ public class ExcelTool<T> {
         return richTextStrings;
     }
 
-    public static RichTextString convertToRichText(Workbook workbook, String header) {
-        String[] headSplit = StringUtils.split(header, "|");
-        String wholeHead = StringUtils.remove(header, "|");
-        RichTextString richTextString = new HSSFRichTextString(wholeHead);
-        richTextString.applyFont(0, headSplit[0].length(), getHeadFont(workbook));
-        if (headSplit.length > 1) {
-            richTextString.applyFont(headSplit[0].length(), wholeHead.length(), getMouldCellFont(workbook));
-        }
-        return richTextString;
-    }
-
-
     /**
-     * 从表格中解析人员数据（诚基项目使用）,注意表格中各个属性的顺序要和java类中一致，本工具类从第四行开始读数据，前三行默认为标题行
-     * @param workbook
-     * @param clazz
-     * @return
-     * @throws IllegalAccessException
-     * @throws InstantiationException
-     */
-    public List<T> getChengJiHumanDataFromExcel(Workbook workbook, Class<T> clazz) throws IllegalAccessException, InstantiationException {
-
-        Field[] fields = clazz.getDeclaredFields();
-
-        List<T> dataList = new ArrayList<>();
-        // 解析sheet
-        for (int i = 0; i < workbook.getNumberOfSheets(); i++) {
-            Sheet sheet = workbook.getSheetAt(i);
-            int readRowCount = sheet.getPhysicalNumberOfRows();
-
-            //获取楼门地址
-            Row rowBuilding = sheet.getRow(1);
-            Cell cellBuilding = rowBuilding.getCell(0);
-            String building = cellBuilding.getStringCellValue();
-
-            // 解析sheet 的行
-            for (int j = ROW_DATA_INDEX; j < readRowCount; j++) {
-                Row row = sheet.getRow(j);
-                if (row == null) {
-                    continue;
-                }
-                if (row.getFirstCellNum() < 0) {
-                    continue;
-                }
-                // 解析sheet 的列
-                T t = clazz.newInstance();
-                for (int k = 0; k < fields.length; k++) {
-                    Cell cell = row.getCell(k);
-                    Field field = fields[k];
-                    field.setAccessible(true);
-                    if(cell == null) {
-                        continue;
-                    }
-                    cell.setCellType(CellType.STRING);
-                    if(field.getName().equalsIgnoreCase("roomNumber")){//这里存地址
-                        field.set(t, sheet.getSheetName() + " " + building + " " +  cell.getStringCellValue());
-                    } else if(field.getType() == String.class){
-                        field.set(t, cell.getStringCellValue());
-                    } else if (field.getType() == Integer.class){
-                        field.set(t, Integer.parseInt(cell.getStringCellValue()));
-                    } else if(field.getType() == Double.class) {
-                        field.set(t, Double.valueOf(cell.getStringCellValue()));
-                    } else if(field.getType() == Float.class) {
-                        field.set(t, Float.valueOf(cell.getStringCellValue()));
-                    } else if(field.getType() == BigDecimal.class){
-                        field.set(t, new BigDecimal(cell.getStringCellValue()));
-                    } else if(field.getType() == List.class){
-                        // 如果是List类型，得到其Generic的类型
-                        Type genericType = field.getGenericType();
-                        if(genericType == null) continue;
-                        // 如果是泛型参数的类型
-                        if(genericType instanceof ParameterizedType){
-                            ParameterizedType pt = (ParameterizedType) genericType;
-                            //得到泛型里的class类型对象
-                            Class<?> genericClazz = (Class<?>)pt.getActualTypeArguments()[0];
-                            JSONArray jsonArray = JSONArray.parseArray(cell.getStringCellValue());
-
-                            List list = new ArrayList();
-                            for (int m =0; m < jsonArray.size(); m ++){
-                                JSONObject jsonObject = jsonArray.getJSONObject(m);
-                                list.add(JSONObject.parseObject(jsonObject.toJSONString(), genericClazz));
-                            }
-                            field.set(t, list);
-                        }
-                    }
-                    // todo 添加更多类型
-                }
-                dataList.add(t);
-            }
-        }
-        return dataList;
-    }
-
-    /**
-     * 从表格中解析数据,注意表格中各个属性的顺序要和java类中一致，本工具类从第四行开始读数据，前三行默认为标题行
+     * 从表格中解析数据,注意表格中各个属性的顺序要和java类中一致，本a
      * @param workbook
      * @param clazz
      * @return
@@ -662,8 +559,9 @@ public class ExcelTool<T> {
                 }
                 dataList.add(t);
             }
+            return dataList;
         }
-        return dataList;
+        return Collections.emptyList();
     }
 
     /**
@@ -711,31 +609,187 @@ public class ExcelTool<T> {
         }
         return workbook;
     }
+    
+    /**
+     * 导出对象的特定一级属性
+     * @param dataList 数据集
+     * @param fields 导出哪些字段
+     * @param headers 表头
+     * @param pic pic 是否导出图片， true导出图片  false 仅导出url
+     * @return 表格
+     * @throws IllegalAccessException
+     * @throws NoSuchFieldException
+     */
+    public static Workbook createSelectedWorkbookWithCommonHeader(List dataList, List<String> fields, List<String> headers, boolean pic) throws IllegalAccessException, NoSuchFieldException {
 
-    //富文本以及占用单元格宽度信息
-    public static class MergeHeader{
-        private RichTextString richTextString;
-        private int size;
+        // 声明一个工作薄，xls格式，新版excel也能打开
+        HSSFWorkbook workbook = new HSSFWorkbook();
+        Sheet sheet = createSheetWithCommonHeader(workbook,"sheet",headers);
+        return createSelectedWorkbookWithPicture(workbook, sheet, dataList, fields, pic);
+    }
 
-        public MergeHeader(RichTextString richTextString, int size) {
-            this.richTextString = richTextString;
-            this.size = size;
+
+    /**
+     * 导出对象中的所有一级属性
+     * @param workbook
+     * @param sheet
+     * @param dataList 数据
+     * @param fieldList 选择的属性
+     * @param pic 是否导出图片， true导出图片  false 仅导出url
+     * @return workbook
+     * @throws IllegalAccessException
+     * @throws NoSuchFieldException
+     */
+    private static Workbook createSelectedWorkbookWithPicture(Workbook workbook, Sheet sheet, List dataList, List<String> fieldList, boolean pic) throws IllegalAccessException, NoSuchFieldException {
+        CellStyle defaultCellStyle = ExcelTool.getCommonCellStyle(workbook);
+        // 遍历集合数据，产生数据行
+        Row row;
+        int index = ROW_DATA_INDEX;
+        for (Object data : dataList) {
+            row = sheet.createRow(index);
+            int cellIndex = 0;
+            //获取集合元素的类类型，也就是要下载的类的类类型
+            Class c = data.getClass();
+
+            //遍历属性名集合，获取每一个要导出的属性的名字
+            for (String fieldName : fieldList) {
+                Field field = c.getDeclaredField(fieldName);
+                //设置对象的访问权限，保证对private的属性的访问
+                field.setAccessible(true);
+                //设置属性对象可读
+                field.setAccessible(true);
+                //获取data中该属性的值
+                Object insertToCell = field.get(data);
+                //创建单元格
+                Cell cell = row.createCell(cellIndex);
+                //设置单元格类型为字符串
+                cell.setCellType(CellType.STRING);
+                cell.setCellStyle(defaultCellStyle);
+                //插入数据
+                if (insertToCell == null) {
+                    cell.setCellValue("");
+                } else if(field.getType() == String.class){
+                    String value = String.valueOf(insertToCell);
+                    if(value.contains("http")){
+
+                        if(!pic){
+                            cell.setCellFormula("HYPERLINK(\"" + value + "\")");
+                            cell.setCellStyle(getLinkCellStyle(workbook));
+                            cell.setCellValue(value);
+                            cellIndex ++;
+                            continue;
+                        }
+                        byte[] bytes = new byte[0];
+                        try {
+                            bytes = image2Byte(value);
+                        } catch (Exception e) {
+                            cell.setCellFormula("HYPERLINK(\"" + value + "\")");
+                            cell.setCellStyle(getLinkCellStyle(workbook));
+                            cell.setCellValue(value);
+                            cellIndex ++;
+                            continue;
+                        }
+                        row.setHeightInPoints(160);
+                        Drawing patriarch = sheet.createDrawingPatriarch();
+
+                        CreationHelper helper = sheet.getWorkbook().getCreationHelper();
+                        ClientAnchor anchor = helper.createClientAnchor();
+
+                        // 图片插入坐标
+                        anchor.setCol1(cellIndex);
+                        anchor.setRow1(index);
+
+                        // 指定我想要的长宽
+                        double standardWidth = 360;
+                        double standardHeight = 200;
+
+                        // 计算单元格的长宽
+                        double cellWidth = sheet.getColumnWidthInPixels(cell.getColumnIndex());
+                        double cellHeight = cell.getRow().getHeightInPoints()/72*96;
+
+                        // 计算需要的长宽比例的系数
+                        double a = standardWidth / cellWidth;
+                        double b = standardHeight / cellHeight;
+
+                        // 插入图片
+                        int pictureIdx = workbook.addPicture(bytes, Workbook.PICTURE_TYPE_JPEG);
+                        Picture pict = patriarch.createPicture(anchor, pictureIdx);
+                        pict.resize(a,b);
+                    } else {
+                        cell.setCellValue(value);
+                    }
+                } else if(field.getType() == Date.class){
+                    Date date = (Date)insertToCell;
+                    String s = DateTimeTool.formatFullDateTime(date.getTime());
+                    cell.setCellValue(s);
+                }else {
+                    cell.setCellValue("" + insertToCell);
+                }
+                cellIndex ++;
+            }
+            index++;
+        }
+        return workbook;
+    }
+
+
+    /**
+     * 图片转字节数组
+     * @param imgUrl 图片url
+     * @return 字节数组
+     */
+    private static byte[] image2Byte(String imgUrl) {
+        if(imgUrl.contains("/ngx/proxy?i=")){
+            String urlBase64 = StringUtils.substringAfter(imgUrl, "/ngx/proxy?i=");
+            imgUrl = new String(Base64Utils.decodeFromString(urlBase64));
+        }
+        URL url;
+        HttpURLConnection urlConnection = null;
+        InputStream inputStream = null;
+        ByteArrayOutputStream baos = null;
+        try {
+            url = new URL(imgUrl);
+            urlConnection = ( HttpURLConnection ) url.openConnection();
+            urlConnection.setConnectTimeout(60000);
+            urlConnection.connect();
+            inputStream = urlConnection.getInputStream();
+
+            baos = new ByteArrayOutputStream();
+
+            byte[] buffer = new byte[1024];
+            int len = 0;
+            //使用一个输入流从buffer里把数据读取出来
+            while ((len = inputStream.read(buffer)) != -1) {
+                //用输出流往buffer里写入数据，中间参数代表从哪个位置开始读，len代表读取的长度
+                baos.write(buffer, 0, len);
+            }
+            // 对字节数组Base64编码
+            return baos.toByteArray();
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            if (inputStream != null) {
+                try {
+                    inputStream.close();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+
+            if (baos != null) {
+                try {
+                    baos.close();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+
+            if (urlConnection != null) {
+                urlConnection.disconnect();
+            }
         }
 
-        public RichTextString getRichTextString() {
-            return richTextString;
-        }
-
-        public void setRichTextString(RichTextString richTextString) {
-            this.richTextString = richTextString;
-        }
-
-        public int getSize() {
-            return size;
-        }
-
-        public void setSize(int size) {
-            this.size = size;
-        }
+        return new byte[]{};
     }
 }
